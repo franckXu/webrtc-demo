@@ -11,12 +11,10 @@ const Container = () => {
                         {({ channel, updateChannel }) => {
                             return (
                                 <Chat
-                                    {...{
-                                        connection,
-                                        updateConnection,
-                                        channel,
-                                        updateChannel
-                                    }}
+                                    connection={connection}
+                                    updateConnection={updateConnection}
+                                    channel={channel}
+                                    updateChannel={updateChannel}
                                 />
                             )
                         }}

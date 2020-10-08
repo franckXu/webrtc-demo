@@ -10,6 +10,18 @@ import {
 } from 'semantic-ui-react';
 import SweetAlert from 'react-bootstrap-sweetalert';
 import UsersList from './UsersList';
+import MessageBox from './MessageBox';
+import { format } from "date-fns";
+
+const configuration = {
+    iceServers: [{
+        url:
+            // "stun:stun.xten.com"
+            // "stun:stun.1.google.com:19302"
+            "stun:stun.services.mozilla.com"
+
+    }]
+};
 
 const Chat = ({ connection,
     updateConnection,
@@ -23,10 +35,21 @@ const Chat = ({ connection,
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [name, setName] = useState("");
     const [loggingIn, setLoggingIn] = useState(false);
-
     const [users, setUsers] = useState([]);
+    const messagesRef = useRef([]);
+    const [message, setMessage] = useState("");
+    const [messages, setMessages] = useState({});
+    const connectedRef = useRef("");
+    const [connectedTo, setConnectedTo] = useState("");
+    const [connecting, setConnecting] = useState(false);
 
     const closeAlert = () => setAlert(null);
+    const updateUsersList = ({ user }) => {
+        setUsers(prev => ([...prev, user]))
+    };
+    const removeUser = ({ user }) => {
+        setUsers(prev => prev.filter(u => u.userName !== user.userName))
+    }
 
     const send = (data) => {
         webSocket.current.send(JSON.stringify(data))
@@ -52,11 +75,10 @@ const Chat = ({ connection,
             >Logged in successfully!</SweetAlert>);
             setIsLoggedIn(true);
             setUsers(loggedIn);
-            const configuration = {
-                iceServers: [{ url: "stun:stun.1.google.com:19302" }]
-            };
+
             let localConnection = new RTCPeerConnection(configuration);
             localConnection.onicecandidate = ({ candidate }) => {
+                console.log('onicecandidate', candidate);
                 let connectedTo = connectedRef.current;
                 if (candidate && !!connectedTo) {
                     send({
@@ -65,16 +87,16 @@ const Chat = ({ connection,
                         candidate
                     })
                 };
-                localConnection.ondatachannel = (event) => {
-                    let receiveChannel = event.channel;
-                    receiveChannel.onopen = () => {
-                        console.log("Data channel is open and ready to be used.")
-                    };
-                    receiveChannel.onmessage = handleDataChannelMessageReceived;
-                    updateChannel(receiveChannel);
-                };
-                updateConnection(localConnection);
             }
+            localConnection.ondatachannel = (event) => {
+                let receiveChannel = event.channel;
+                receiveChannel.onopen = () => {
+                    console.log("Data channel is open and ready to be used.")
+                };
+                receiveChannel.onmessage = handleDataChannelMessageReceived;
+                updateChannel(receiveChannel);
+            };
+            updateConnection(localConnection);
         } else {
             setAlert(<SweetAlert
                 warning
@@ -104,11 +126,98 @@ const Chat = ({ connection,
         };
         dataChannel.onmessage = handleDataChannelMessageReceived;
         updateChannel(dataChannel);
+
+        connection.createOffer()
+            .then(offer => {
+                console.log('createOffer', offer);
+                return connection.setLocalDescription(offer);
+            })
+            .then(() =>
+                send({
+                    type: "offer",
+                    offer: connection.localDescription,
+                    name
+                }))
+            .catch(e => {
+                setAlert(
+                    <SweetAlert
+                        warning
+                        confirmBtnBsStyle="danger"
+                        title="failed"
+                        onConfirm={closeAlert}
+                        onCancel={closeAlert}
+                    >
+                        An error has ocurred.
+                        </SweetAlert>
+                )
+            })
+    };
+
+    const onOffer = ({ name, offer }) => {
+        setConnectedTo(name);
+        connectedRef.current = name;
+        connection
+            .setRemoteDescription(new RTCSessionDescription(offer))
+            .then(() => connection.createAnswer())
+            .then((answer) => connection.setLocalDescription(answer))
+            .then(() => send({
+                type: "answer",
+                answer: connection.localDescription,
+                name: name
+            }))
+            .catch(e => {
+                console.log({ e });
+                setAlert(
+                    <SweetAlert
+                        warning
+                        confirmBtnBsStyle="danger"
+                        title="Failed"
+                        onConfirm={closeAlert}
+                        onCancel={closeAlert}
+                    >  An error has ocurred. </SweetAlert>
+                )
+            })
+    };
+
+    const onAnswer = ({ answer }) => {
+        connection.setRemoteDescription(new RTCSessionDescription(answer));
+    };
+
+    const onCandidate = ({ candidate }) => {
+        const ice = new RTCIceCandidate(candidate);
+        console.log(candidate, ice, connection.remoteDescription);
+        connection.addIceCandidate(ice)
+            // connection.addIceCandidate(candidate)
+            .catch(e => {
+                console.log({ e });
+            })
+
     }
 
-    const connectedRef = useRef("");
-    const [connectedTo, setConnectedTo] = useState("");
-    const [connecting, setConnecting] = useState(false);
+    const sendMsg = () => {
+        const time = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss.SSSxxx");
+        let text = { time, message, name };
+        let messages = messagesRef.current;
+        let connectedTo = connectedRef.current;
+        let userMessages = messages[connectedTo];
+        if (userMessages) {
+            userMessages = [...userMessages, text];
+            let newMessages = Object.assign({}, messages, {
+                [connectedRef]: userMessages
+            });
+            messagesRef.current = newMessages;
+            setMessages(newMessages);
+        } else {
+            userMessages = Object.assign({}, messages, {
+                [connectedRef]: [text]
+            });
+            messagesRef.current = userMessages;
+            setMessages(userMessages);
+        }
+        channel.send(JSON.stringify(text));
+        setMessage("");
+    }
+
     const toggleConnection = (userName) => {
         // disconnect
         if (connectedRef.current === userName) {
@@ -125,6 +234,27 @@ const Chat = ({ connection,
             setConnecting(false);
         }
     };
+
+    const handleDataChannelMessageReceived = ({ data }) => {
+        const message = JSON.parse(data);
+        const { name: user } = message;
+        let messages = messagesRef.current;
+        let userMessages = messages[user];
+        if (userMessages) {
+            userMessages = [...userMessages, message];
+            let newMessages = Object.assign({}, messages, {
+                [user]: userMessages
+            });
+            messagesRef.current = newMessages;
+            setMessages(newMessages);
+        } else {
+            let newMessages = Object.assign({}, messages, {
+                [user]: [message]
+            });
+            messagesRef.current = newMessages;
+            setMessages(newMessages);
+        }
+    }
 
     useEffect(() => {
         webSocket.current = new WebSocket("ws://localhost:9000");
@@ -144,6 +274,7 @@ const Chat = ({ connection,
     }, []);
 
     useEffect(() => {
+        console.log('socketMessage effect');
         let data = socketMessage.pop();
         if (data) {
             console.log(data);
@@ -159,7 +290,7 @@ const Chat = ({ connection,
                 }
                 case "updateUsers": {
                     console.log(data);
-                    setUsers(users => ([data.user, ...users]))
+                    updateUsersList(data);
                     break;
                 }
                 case "error": {
@@ -168,18 +299,22 @@ const Chat = ({ connection,
                 }
                 case "offer": {
                     console.log('offer', data);
+                    onOffer(data);
                     break;
                 }
                 case "answer": {
                     console.log('answer', data);
+                    onAnswer(data);
                     break;
                 }
                 case "candidate": {
                     console.log('candidate', data);
+                    onCandidate(data);
                     break;
                 }
                 case "leave": {
                     console.log('leave', data);
+                    removeUser(data);
                     break;
                 }
                 default:
@@ -235,7 +370,10 @@ const Chat = ({ connection,
                             >
 
                             </UsersList>
+                            <MessageBox
+                                {...{ messages, connectedTo, message, setMessage, sendMsg, name }} />
                         </Grid>
+
                     </Fragment>
                 )) || (
                     <Loader size="massive" active inline="centered">

@@ -1,28 +1,38 @@
-import React from 'react';
+import React, { useState } from 'react';
 import './App.css';
 import Container from './Container';
 
 const Connection = React.createContext({
   connection: null,
-  updateConnection: null
+  updateConnection: () => { }
 });
 
 const Channel = React.createContext({
   channel: null,
-  updateChannel: null
+  updateChannel: () => { }
 });
 export const ConnectionConsumer = Connection.Consumer;
 export const ChannelConsumer = Channel.Consumer;
 
+
 function App() {
+
+  const [channel, setChannel] = useState(null);
+  const [connection, setConnection] = useState(null);
+
   return (
     <Connection.Provider value={{
-      connection: null,
-      updateConnection: null
+      connection,
+      updateConnection(connection) {
+        console.log('updateConnection', connection);
+        setConnection(connection)
+      }
     }}>
       <Channel.Provider value={{
-        channel: null,
-        updateChannel: null
+        channel,
+        updateChannel(channel) {
+          setChannel(channel)
+        }
       }}>
         <Container />
       </Channel.Provider>

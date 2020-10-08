@@ -35,7 +35,7 @@ wss.on('connection', ws => {
             console.error('invalid JSON', msg, err);
             data = {};
         }
-        const { type, name, offer, answer ,candidate} = data;
+        const { type, name, offer, answer, candidate } = data;
         switch (type) {
             case 'login': {
                 // check if username availabel
@@ -87,7 +87,8 @@ wss.on('connection', ws => {
                 if (!!answerRecipient) {
                     sendTo(answerRecipient, {
                         type: "answer",
-                        answer
+                        answer,
+                        name,
                     })
                 } else {
                     sendTo(ws, {
@@ -104,9 +105,9 @@ wss.on('connection', ws => {
                         type: "candidate",
                         candidate
                     });
-                }else{
-                    sendTo(ws,{
-                        type : 'error',
+                } else {
+                    sendTo(ws, {
+                        type: 'error',
                         message: `User ${name} does not exist!`
                     })
                 }
@@ -125,9 +126,9 @@ wss.on('connection', ws => {
         }
     });
 
-    ws.on("close",function(){
+    ws.on("close", function () {
         delete users[ws.name];
-        sendToAll(users,"leave",ws);
+        sendToAll(users, "leave", ws);
     });
 
     ws.send(
