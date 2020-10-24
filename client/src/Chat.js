@@ -12,6 +12,7 @@ import SweetAlert from 'react-bootstrap-sweetalert';
 import UsersList from './UsersList';
 import MessageBox from './MessageBox';
 import { format } from "date-fns";
+import Video from './Video';
 
 const configuration = {
     iceServers: [{
@@ -19,7 +20,6 @@ const configuration = {
             // "stun:stun.xten.com"
             // "stun:stun.1.google.com:19302"
             "stun:stun.services.mozilla.com"
-
     }]
 };
 
@@ -42,6 +42,8 @@ const Chat = ({ connection,
     const connectedRef = useRef("");
     const [connectedTo, setConnectedTo] = useState("");
     const [connecting, setConnecting] = useState(false);
+    const videoEleRef = React.useRef(null);
+    const remoteVideoEleRef = React.useRef(null);
 
     const closeAlert = () => setAlert(null);
     const updateUsersList = ({ user }) => {
@@ -78,7 +80,7 @@ const Chat = ({ connection,
 
             let localConnection = new RTCPeerConnection(configuration);
             localConnection.onicecandidate = ({ candidate }) => {
-                console.log('onicecandidate', candidate);
+                console.log('onicecandidate', candidate, connectedRef.current);
                 let connectedTo = connectedRef.current;
                 if (candidate && !!connectedTo) {
                     send({
@@ -89,6 +91,7 @@ const Chat = ({ connection,
                 };
             }
             localConnection.ondatachannel = (event) => {
+                console.log('ondatachannel');
                 let receiveChannel = event.channel;
                 receiveChannel.onopen = () => {
                     console.log("Data channel is open and ready to be used.")
@@ -96,6 +99,19 @@ const Chat = ({ connection,
                 receiveChannel.onmessage = handleDataChannelMessageReceived;
                 updateChannel(receiveChannel);
             };
+
+            addMediaStreamToConnection(localConnection);
+
+            localConnection.ontrack = (event) => {
+                console.log('ontrack.', event);
+                if (!remoteVideoEleRef.current) {
+                    alert('remoteVideoEle is null');
+                    return;
+                }
+
+                remoteVideoEleRef.current.srcObject = event.streams[0];
+            }
+
             updateConnection(localConnection);
         } else {
             setAlert(<SweetAlert
@@ -180,12 +196,13 @@ const Chat = ({ connection,
     };
 
     const onAnswer = ({ answer }) => {
+        console.log('onAnswer', answer);
         connection.setRemoteDescription(new RTCSessionDescription(answer));
     };
 
     const onCandidate = ({ candidate }) => {
         const ice = new RTCIceCandidate(candidate);
-        console.log(candidate, ice, connection.remoteDescription);
+        console.log('onCandidate', candidate, ice, connection.remoteDescription);
         connection.addIceCandidate(ice)
             // connection.addIceCandidate(candidate)
             .catch(e => {
@@ -254,7 +271,25 @@ const Chat = ({ connection,
             messagesRef.current = newMessages;
             setMessages(newMessages);
         }
-    }
+    };
+
+    const addMediaStreamToConnection = async (connection) => {
+        try {
+            const mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                // audio: true
+            });
+            videoEleRef.current.srcObject = mediaStream;
+
+            mediaStream.getTracks().forEach(track => {
+                console.log('getTrack', track);
+                connection.addTrack(track, mediaStream);
+                // connection.addTransceiver(track, { streams: [mediaStream] });
+            })
+        } catch (err) {
+            console.error(err)
+        }
+    };
 
     useEffect(() => {
         webSocket.current = new WebSocket("ws://localhost:9000");
@@ -274,7 +309,6 @@ const Chat = ({ connection,
     }, []);
 
     useEffect(() => {
-        console.log('socketMessage effect');
         let data = socketMessage.pop();
         if (data) {
             console.log(data);
@@ -322,11 +356,19 @@ const Chat = ({ connection,
             }
         }
 
-    }, [socketMessage])
+    }, [socketMessage]);
 
     return (
         <div className="App">
             {alert}
+            <div>
+                <h4>local</h4>
+                <video autoPlay ref={videoEleRef}>not suppert video</video>
+            </div>
+            <div>
+                <h4>remote</h4>
+                <video autoPlay ref={remoteVideoEleRef}>not suppert video</video>
+            </div>
             <Header as="h2" icon>
                 <Icon name="users" />
                 Simple WebRTC Chap App
